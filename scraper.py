@@ -1,6 +1,8 @@
 import re
+import time
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
+from utils.download import download
 
 MIN_THRESHOLD = 6000 # rough threshold to determine whether the page is worth crawling in byte(octet) 6kbyte
 MAX_THRESHOLD = 1000000 # rough threshold to determine whether the page is too large in byte(octet) 1mbyte
@@ -184,9 +186,9 @@ class OverwhelmedException(Exception):
     def __init__():
         pass
 
-def scraper(url, resp, buffer, top_record, urls_dict, subdomain_dict):
-    links = extract_next_links(url, resp, buffer, top_record, urls_dict, subdomain_dict)
-    return [link for link in links if is_valid(link)]
+def scraper(url, resp, buffer, top_record, urls_dict, subdomain_dict, config, logger, robot_dict):
+    links = extract_next_links(url, resp, buffer, top_record, urls_dict, subdomain_dict, config, logger, robot_dict)
+    return [link for link in links if is_valid(link, robot_dict)]
 
 def get_domain(url):
     try:
@@ -196,7 +198,31 @@ def get_domain(url):
         print(url)
         return ""
 
-def extract_next_links(url, resp, buffer, top_record, urls_dict, subdomain_dict):
+def read_robots(subdomain, craw_config, craw_log, rules_dict):
+    # allow is first list and disallow is second
+    resp = download(f"https://{subdomain}/robots.txt", craw_config, craw_log)
+    if resp.status == 608:
+        with open("forbidden_robots.txt", "a") as file:
+            file.write(f"608:{subdomain}\n")
+        return
+    rules_dict[subdomain] = [[], []]
+    rules = resp.raw_response.content.decode().split("\n")
+    lock = False
+    for line in rules:
+        if "User-agent" in line:
+            if not lock:
+                if "*" == line.split(":")[1].strip():
+                    lock = True
+            elif lock:
+                lock = False
+        elif lock and "Disallow" in line:
+            rules_dict[subdomain][1].append(line.split(":")[1].strip())
+        elif lock and "Allow" in line:
+            rules_dict[subdomain][0].append(line.split(":")[1].strip())
+
+    
+
+def extract_next_links(url, resp, buffer, top_record, urls_dict, subdomain_dict, config, logger, robot_dict):
     # Implementation required.
     # url: the URL that was used to get the page
     # resp.url: the actual url of the page
@@ -216,6 +242,7 @@ def extract_next_links(url, resp, buffer, top_record, urls_dict, subdomain_dict)
         with open("status_error.txt", "a") as file:
             file.write(f"{resp.status}:{url}\n")
         if resp.status == 429:
+            time.sleep(0.5)
             raise OverwhelmedException()
         return []
     elif content_len < MIN_THRESHOLD:
@@ -232,11 +259,15 @@ def extract_next_links(url, resp, buffer, top_record, urls_dict, subdomain_dict)
     urls = [x["href"] for x in urls]
     urls = list([x for x in urls if "ics.uci.edu" in get_domain(x) or "cs.uci.edu" in get_domain(x) or "informatics.uci.edu" in get_domain(x) or "stat.uci.edu" in get_domain(x)])
     extract_text(soup, buffer, "token_counts.txt", url, top_record)
-    store_url(urls, "unique_urls.txt", urls_dict)
-    store_subdomain(urls, "subdomains.txt", subdomain_dict)
+    store_subdomain(urls, "subdomains.txt", subdomain_dict, config, logger, robot_dict)
+    # eddiscussion said that resp codes like 404 cannot be counted
+    # assumption: non-valid resp codes (!=200) are all to be discarded
+    # resolution: only store url that has been downloaded successfully (change var urls to [url])
+    store_url([url], "unique_urls.txt", urls_dict, robot_dict)
+    
     return urls
 
-def is_valid(url):
+def is_valid(url, rules_dict):
     # Decide whether to crawl this url or not. 
     # If you decide to crawl it, return True; otherwise return False.
     # There are already some conditions that return False.
@@ -244,6 +275,17 @@ def is_valid(url):
         parsed = urlparse(url)
         if parsed.scheme not in set(["http", "https"]):
             return False
+        subdomain = parsed.hostname
+        robot_rules = rules_dict.get(subdomain)
+        if robot_rules != None:
+            skip = False
+            for allowed in robot_rules[0]:
+                if allowed in parsed.path:
+                    skip = True
+            if not skip:
+                for disallowed in robot_rules[1]:
+                    if disallowed in parsed.path:
+                        return False
         return not (re.match(
             r".*\.(css|js|bmp|gif|jpe?g|ico"
             + r"|png|tiff?|mid|mp2|mp3|mp4"
@@ -293,9 +335,9 @@ def initialize_url_buffer(file_name):
             url_dict[line.strip()] = True
     return url_dict
 
-def store_url(link_list, file_name, link_buffer:dict):
+def store_url(link_list, file_name, link_buffer:dict, rules_dict):
     for url_link in link_list:
-        if not is_valid(url_link):
+        if not is_valid(url_link, rules_dict):
             continue
         parsed_link = urlparse(url_link)
         truncated_link = f"{parsed_link.scheme}://{parsed_link.hostname}{parsed_link.path}"
@@ -315,12 +357,13 @@ def initialize_subdomain_buffer(file_name):
             subdomain_dict[line.strip()] = True
     return subdomain_dict
 
-def store_subdomain(link_list, file_name, link_buffer):
+def store_subdomain(link_list, file_name, link_buffer, config, logger, robot_dict):
     for url_link in link_list:
         subdomain = get_domain(url_link)
         if link_buffer.get(subdomain):
             continue
         else:
+            read_robots(subdomain, config, logger, robot_dict)
             link_buffer[subdomain] = True
     with open(file_name, "w") as file:
         for key in link_buffer.keys():

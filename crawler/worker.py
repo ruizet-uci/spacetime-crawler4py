@@ -22,6 +22,7 @@ class Worker(Thread):
         top_record = scraper.initialize_longest_doc("longest_doc.txt")
         urls_dict = scraper.initialize_url_buffer("unique_urls.txt")
         subdomain_dict = scraper.initialize_subdomain_buffer("subdomains.txt")
+        robot_rules_dict = {}
         while True:
             tbd_url = self.frontier.get_tbd_url()
             if not tbd_url:
@@ -32,10 +33,10 @@ class Worker(Thread):
                 f"Downloaded {tbd_url}, status <{resp.status}>, "
                 f"using cache {self.config.cache_server}.")
             try:
-                scraped_urls = scraper.scraper(tbd_url, resp, tokens_dict, top_record, urls_dict, subdomain_dict)
+                scraped_urls = scraper.scraper(tbd_url, resp, tokens_dict, top_record, urls_dict, subdomain_dict, self.config, self.logger, robot_rules_dict)
                 for scraped_url in scraped_urls:
                     self.frontier.add_url(scraped_url)
                 self.frontier.mark_url_complete(tbd_url)
                 time.sleep(self.config.time_delay)
-            except OverwhelmedException:
+            except scraper.OverwhelmedException:
                 pass
