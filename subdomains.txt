@@ -103,3 +103,8 @@ pasteur.ics.uci.edu
 map125.ics.uci.edu
 plrg.ics.uci.edu
 graphics.ics.uci.edu
+stairs.ics.uci.edu
+cecs.uci.edu
+auge.ics.uci.edu
+seraja.ics.uci.edu
+hack.ics.uci.edu

@@ -1,2 +1,2 @@
-http://www.ics.uci.edu/~kay/wordlist.txt
-385020
+https://cml.ics.uci.edu/category/aiml
+24076

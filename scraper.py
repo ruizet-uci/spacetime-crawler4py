@@ -2,6 +2,9 @@ import re
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 
+MIN_THRESHOLD = 6000 # rough threshold to determine whether the page is worth crawling in byte(octet) 6kbyte
+MAX_THRESHOLD = 1000000 # rough threshold to determine whether the page is too large in byte(octet) 1mbyte
+
 stop_words = ["a",
 "about",
 "above",
@@ -177,6 +180,10 @@ stop_words = ["a",
 "yourself",
 "yourselves"]
 
+class OverwhelmedException(Exception):
+    def __init__():
+        pass
+
 def scraper(url, resp, buffer, top_record, urls_dict, subdomain_dict):
     links = extract_next_links(url, resp, buffer, top_record, urls_dict, subdomain_dict)
     return [link for link in links if is_valid(link)]
@@ -199,16 +206,31 @@ def extract_next_links(url, resp, buffer, top_record, urls_dict, subdomain_dict)
     #         resp.raw_response.url: the url, again
     #         resp.raw_response.content: the content of the page!
     # Return a list with the hyperlinks (as strings) scrapped from resp.raw_response.content
+    if resp.raw_response != None:
+        content_len = int(resp.raw_response.headers.get("Content-Length", MIN_THRESHOLD))
+        # cant seem to get the canonical url from the header, if canonical address can be obtained, 
+        # it will be possible to completely
+        # avoid accessing out of the uci.edu domains
     if resp.status != 200:
         print(f"{url}: {resp.error}")
         with open("status_error.txt", "a") as file:
             file.write(f"{resp.status}:{url}\n")
+        if resp.status == 429:
+            raise OverwhelmedException()
         return []
-
+    elif content_len < MIN_THRESHOLD:
+        with open("size_issue_urls.txt", "a") as file:
+            file.write(f"{content_len}:{url}\n")
+        return []
+    elif content_len > MAX_THRESHOLD:
+        with open("size_issue_urls.txt", "a") as file:
+            file.write(f"{content_len}:{url}\n")
+        return []
+        
     soup = BeautifulSoup(resp.raw_response.content, "html.parser")
     urls = soup.find_all(href=True)
-    print(urls[:3])
-    urls = list([x[6:-1] for x in urls if "ics.uci.edu" in get_domain(x[6:-1]) or "cs.uci.edu" in get_domain(x[6:-1]) or "informatics.uci.edu" in get_domain(x[6:-1]) or "stat.uci.edu" in get_domain(x[6:-1])])
+    urls = [x["href"] for x in urls]
+    urls = list([x for x in urls if "ics.uci.edu" in get_domain(x) or "cs.uci.edu" in get_domain(x) or "informatics.uci.edu" in get_domain(x) or "stat.uci.edu" in get_domain(x)])
     extract_text(soup, buffer, "token_counts.txt", url, top_record)
     store_url(urls, "unique_urls.txt", urls_dict)
     store_subdomain(urls, "subdomains.txt", subdomain_dict)
@@ -230,10 +252,15 @@ def is_valid(url):
             + r"|data|dat|exe|bz2|tar|msi|bin|7z|psd|dmg|iso"
             + r"|epub|dll|cnf|tgz|sha1"
             + r"|thmx|mso|arff|rtf|jar|csv"
-            + r"|rm|smil|wmv|swf|wma|zip|rar|gz|jp|events/tag/talks/list|events/tag/talks/month)$", parsed.path.lower())
-                    or re.match(r".*ical=", parsed.query.lower())
+            + r"|rm|smil|wmv|swf|wma|zip|rar|gz|jp|txt)$", parsed.path.lower())
+                    or re.match(r".*(ical=)|(share=)|(tribe-bar-date)", parsed.query.lower())
+                    or re.match(r".*(tribe.?events)", parsed.query.lower())
+                    # query parameter share seems to link out of domain(twitter/facebook)
                     or re.match(r".*(/wp-json|events/.*/[0-9]+-[0-9]+(-[0-9]+)*)", parsed.path.lower())
-                    or re.match(r".*(isg.ics.uci.edu/)(\?p=[0-9]+|events/.*/)+", url))
+                    or re.match(r".*(isg.ics.uci.edu/)(\?p=[0-9]+|events/.*/)+", url)
+                    or (re.match(r"ics.uci.edu", parsed.hostname) and re.match(f".*/(people|happening)", parsed.path))
+                    or re.match(f"(p|page)=[2-9][0-9][0-9]+", parsed.query.lower())
+                    or re.match(f"/(p|page)([=/])[5-9][0-9][0-9]+", parsed.path))
 
     except TypeError:
         print ("TypeError for ", parsed)
