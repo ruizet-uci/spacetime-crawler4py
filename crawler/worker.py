@@ -22,7 +22,7 @@ class Worker(Thread):
         top_record = scraper.initialize_longest_doc("longest_doc.txt")
         urls_dict = scraper.initialize_url_buffer("unique_urls.txt")
         subdomain_dict = scraper.initialize_subdomain_buffer("subdomains.txt")
-        robot_rules_dict = {}
+        robot_rules_dict = scraper.initialize_rules_buffer("robot_rules.txt")
         while True:
             tbd_url = self.frontier.get_tbd_url()
             if not tbd_url:

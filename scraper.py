@@ -5,7 +5,7 @@ from bs4 import BeautifulSoup
 from utils.download import download
 
 MIN_THRESHOLD = 6000 # rough threshold to determine whether the page is worth crawling in byte(octet) 6kbyte
-MAX_THRESHOLD = 1000000 # rough threshold to determine whether the page is too large in byte(octet) 1mbyte
+MAX_THRESHOLD = 10000000 # rough threshold to determine whether the page is too large in byte(octet) 10mbyte
 
 stop_words = ["a",
 "about",
@@ -198,12 +198,34 @@ def get_domain(url):
         print(url)
         return ""
 
+def initialize_rules_buffer(file_name):
+    rules_dict = {}
+    with open(file_name, "r") as file:
+        cur_subdomain = ""
+        status = -1
+        for line in file.readlines():
+            cur_line = line.strip()
+            if "SUBDOMAIN" in cur_line:
+                cur_subdomain = cur_line.split(":")[1]
+                rules_dict[cur_subdomain] = [[], []]
+            elif "ALLOWED" == cur_line:
+                status = 0
+            elif "DISALLOWED" == cur_line:
+                status = 1
+            elif status == 0:
+                rules_dict.get(cur_subdomain)[0].append(cur_line)
+            elif status == 1:
+                rules_dict.get(cur_subdomain)[1].append(cur_line)
+    return rules_dict
+                
 def read_robots(subdomain, craw_config, craw_log, rules_dict):
     # allow is first list and disallow is second
     resp = download(f"https://{subdomain}/robots.txt", craw_config, craw_log)
-    if resp.status == 608:
+    if resp.status == 608 or resp == None:
         with open("forbidden_robots.txt", "a") as file:
             file.write(f"608:{subdomain}\n")
+        return
+    if rules_dict.get(subdomain) != None:
         return
     rules_dict[subdomain] = [[], []]
     rules = resp.raw_response.content.decode().split("\n")
@@ -219,6 +241,14 @@ def read_robots(subdomain, craw_config, craw_log, rules_dict):
             rules_dict[subdomain][1].append(line.split(":")[1].strip())
         elif lock and "Allow" in line:
             rules_dict[subdomain][0].append(line.split(":")[1].strip())
+    with open("robot_rules.txt", "a") as file:
+        file.write(f"SUBDOMAIN:{subdomain}\nALLOWED\n")
+        for allowed in rules_dict.get(subdomain)[0]:
+            file.write(f"{allowed}\n")
+        file.write("DISALLOWED\n")
+        for disallowed in rules_dict.get(subdomain)[1]:
+            file.write(f"{disallowed}\n")
+
 
     
 
