@@ -5,7 +5,7 @@ from bs4 import BeautifulSoup
 from utils.download import download
 
 MIN_THRESHOLD = 6000 # rough threshold to determine whether the page is worth crawling in byte(octet) 6kbyte
-MAX_THRESHOLD = 10000000 # rough threshold to determine whether the page is too large in byte(octet) 10mbyte
+MAX_THRESHOLD = 5000000 # rough threshold to determine whether the page is too large in byte(octet) 1mbyte
 
 stop_words = ["a",
 "about",
@@ -183,7 +183,7 @@ stop_words = ["a",
 "yourselves"]
 
 class OverwhelmedException(Exception):
-    def __init__():
+    def __init__(self):
         pass
 
 def scraper(url, resp, buffer, top_record, urls_dict, subdomain_dict, config, logger, robot_dict):
@@ -221,7 +221,7 @@ def initialize_rules_buffer(file_name):
 def read_robots(subdomain, craw_config, craw_log, rules_dict):
     # allow is first list and disallow is second
     resp = download(f"https://{subdomain}/robots.txt", craw_config, craw_log)
-    if resp.status == 608 or resp == None:
+    if resp.status == 608 or resp.raw_response == None:
         with open("forbidden_robots.txt", "a") as file:
             file.write(f"608:{subdomain}\n")
         return
